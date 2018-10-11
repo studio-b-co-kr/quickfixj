@@ -38,6 +38,7 @@ import quickfix.SessionID;
 import quickfix.SessionNotFound;
 import quickfix.SessionSettings;
 import quickfix.UnsupportedMessageType;
+import quickfix.field.Account;
 import quickfix.field.ApplVerID;
 import quickfix.field.AvgPx;
 import quickfix.field.CumQty;
@@ -321,6 +322,15 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
 
         accept.set(order.getClOrdID());
         accept.set(order.getSymbol());
+        accept.set(order.getAccount());
+        try {
+          accept.set(order.getPrice());
+        } catch (FieldNotFound e) {
+          // market price
+        }
+        accept.set(order.getOrderQty());
+        accept.set(order.getOrdType());
+
         sendMessage(sessionID, accept);
 
         if (isOrderExecutable(order, price)) {
@@ -333,12 +343,41 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
             executionReport.set(orderQty);
             executionReport.set(new LastQty(orderQty.getValue()));
             executionReport.set(new LastPx(price.getValue()));
+            executionReport.set(order.getAccount());
 
             sendMessage(sessionID, executionReport);
         }
         } catch (RuntimeException e) {
             LogUtil.logThrowable(sessionID, e.getMessage(), e);
         }
+    }
+
+    public void onMessage(quickfix.fix43.OrderCancelRequest message, SessionID sessionID)
+        throws FieldNotFound, UnsupportedMessageType, IncorrectTagValue {
+
+        quickfix.fix43.ExecutionReport pending = new quickfix.fix43.ExecutionReport(
+                    genOrderID(), genExecID(), new ExecType(ExecType.PENDING_CANCEL), new OrdStatus(
+                            OrdStatus.PENDING_CANCEL), message.getSide(), new LeavesQty(message.getOrderQty()
+                            .getValue()), new CumQty(0), new AvgPx(0));
+
+        pending.set(message.getAccount());
+        pending.set(message.getClOrdID());
+        pending.set(message.getSymbol());
+        pending.set(message.getOrigClOrdID());
+
+        sendMessage(sessionID, pending);
+
+        quickfix.fix43.ExecutionReport cancelled = new quickfix.fix43.ExecutionReport(
+                    genOrderID(), genExecID(), new ExecType(ExecType.CANCELED), new OrdStatus(
+                            OrdStatus.CANCELED), message.getSide(), new LeavesQty(0), new CumQty(0), new AvgPx(0));
+
+        cancelled.set(message.getAccount());
+        cancelled.set(message.getClOrdID());
+        cancelled.set(message.getSymbol());
+        cancelled.set(message.getOrigClOrdID());
+
+        sendMessage(sessionID, cancelled);
+
     }
 
     public void onMessage(quickfix.fix44.NewOrderSingle order, SessionID sessionID) throws FieldNotFound,
