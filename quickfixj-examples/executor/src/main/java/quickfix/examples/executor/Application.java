@@ -41,6 +41,7 @@ import quickfix.UnsupportedMessageType;
 import quickfix.field.Account;
 import quickfix.field.ApplVerID;
 import quickfix.field.AvgPx;
+import quickfix.field.CxlRejResponseTo;
 import quickfix.field.CumQty;
 import quickfix.field.ExecID;
 import quickfix.field.ExecTransType;
@@ -61,6 +62,8 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+
+import java.util.Random;
 
 public class Application extends quickfix.MessageCracker implements quickfix.Application {
     private static final String DEFAULT_MARKET_PRICE_KEY = "DefaultMarketPrice";
@@ -331,21 +334,70 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
         accept.set(order.getOrderQty());
         accept.set(order.getOrdType());
 
-        sendMessage(sessionID, accept);
+        Random rand = new Random();
+        int chance = rand.nextInt(200) + 1;
 
-        if (isOrderExecutable(order, price)) {
-            quickfix.fix43.ExecutionReport executionReport = new quickfix.fix43.ExecutionReport(genOrderID(),
-                    genExecID(), new ExecType(ExecType.FILL), new OrdStatus(OrdStatus.FILLED), order.getSide(),
-                    new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
+        if (chance == 1) {
+          // reject 0.5% of orders
+          accept.set(new ExecType(ExecType.REJECTED));
+          accept.set(new OrdStatus(OrdStatus.REJECTED));
+          sendMessage(sessionID, accept);
+        } else if (chance == 2) {
+          // intentionally another miss 0.5% of orders
+        } else if (chance > 2 && chance < 52 && orderQty.getValue() > 1 && orderQty.getValue() % 2 == 0) {
+          // only partial fill about 25% of the time, when the order quantity is even
+          sendMessage(sessionID, accept);
 
-            executionReport.set(order.getClOrdID());
-            executionReport.set(order.getSymbol());
-            executionReport.set(orderQty);
-            executionReport.set(new LastQty(orderQty.getValue()));
-            executionReport.set(new LastPx(price.getValue()));
-            executionReport.set(order.getAccount());
+          if (isOrderExecutable(order, price)) {
+              orderQty.setValue( orderQty.getValue()/2 ); // half the value
+              quickfix.fix43.ExecutionReport executionReport = new quickfix.fix43.ExecutionReport(genOrderID(),
+                      genExecID(), new ExecType(ExecType.PARTIAL_FILL), new OrdStatus(OrdStatus.PARTIALLY_FILLED), order.getSide(),
+                      new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
 
-            sendMessage(sessionID, executionReport);
+              executionReport.set(order.getClOrdID());
+              executionReport.set(order.getSymbol());
+              executionReport.set(orderQty);
+              executionReport.set(new LastQty(orderQty.getValue()));
+              executionReport.set(new LastPx(price.getValue()));
+              executionReport.set(order.getAccount());
+
+              sendMessage(sessionID, executionReport);
+
+              if (chance > 40) {
+                // randomly done for day
+                quickfix.fix43.ExecutionReport done = new quickfix.fix43.ExecutionReport(genOrderID(),
+                        genExecID(), new ExecType(ExecType.DONE_FOR_DAY), new OrdStatus(OrdStatus.DONE_FOR_DAY), order.getSide(),
+                        new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
+
+                done.set(order.getClOrdID());
+                done.set(order.getSymbol());
+                done.set(orderQty);
+                done.set(new LastQty(orderQty.getValue()));
+                done.set(new LastPx(price.getValue()));
+                done.set(order.getAccount());
+
+                sendMessage(sessionID, executionReport);
+              }
+          }
+
+        } else {
+          // fully fill 73% of the time
+          sendMessage(sessionID, accept);
+
+          if (isOrderExecutable(order, price)) {
+              quickfix.fix43.ExecutionReport executionReport = new quickfix.fix43.ExecutionReport(genOrderID(),
+                      genExecID(), new ExecType(ExecType.FILL), new OrdStatus(OrdStatus.FILLED), order.getSide(),
+                      new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
+
+              executionReport.set(order.getClOrdID());
+              executionReport.set(order.getSymbol());
+              executionReport.set(orderQty);
+              executionReport.set(new LastQty(orderQty.getValue()));
+              executionReport.set(new LastPx(price.getValue()));
+              executionReport.set(order.getAccount());
+
+              sendMessage(sessionID, executionReport);
+          }
         }
         } catch (RuntimeException e) {
             LogUtil.logThrowable(sessionID, e.getMessage(), e);
@@ -367,16 +419,29 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
 
         sendMessage(sessionID, pending);
 
-        quickfix.fix43.ExecutionReport cancelled = new quickfix.fix43.ExecutionReport(
-                    genOrderID(), genExecID(), new ExecType(ExecType.CANCELED), new OrdStatus(
-                            OrdStatus.CANCELED), message.getSide(), new LeavesQty(0), new CumQty(0), new AvgPx(0));
+        Random rand = new Random();
+        int chance = rand.nextInt(100) + 1;
 
-        cancelled.set(message.getAccount());
-        cancelled.set(message.getClOrdID());
-        cancelled.set(message.getSymbol());
-        cancelled.set(message.getOrigClOrdID());
+        if (chance < 50) {
+          // cancel half the time
+          quickfix.fix43.ExecutionReport cancelled = new quickfix.fix43.ExecutionReport(
+                      genOrderID(), genExecID(), new ExecType(ExecType.CANCELED), new OrdStatus(
+                              OrdStatus.CANCELED), message.getSide(), new LeavesQty(0), new CumQty(0), new AvgPx(0));
 
-        sendMessage(sessionID, cancelled);
+          cancelled.set(message.getAccount());
+          cancelled.set(message.getClOrdID());
+          cancelled.set(message.getSymbol());
+          cancelled.set(message.getOrigClOrdID());
+
+          sendMessage(sessionID, cancelled);
+        } else {
+          // reject half the time
+          quickfix.fix43.OrderCancelReject rejected = new quickfix.fix43.OrderCancelReject(
+                      genOrderID(), message.getClOrdID(), message.getOrigClOrdID(),
+                      new OrdStatus(OrdStatus.CANCELED), new CxlRejResponseTo(CxlRejResponseTo.ORDER_CANCEL_REQUEST));
+
+          sendMessage(sessionID, rejected);
+        }
 
     }
 
