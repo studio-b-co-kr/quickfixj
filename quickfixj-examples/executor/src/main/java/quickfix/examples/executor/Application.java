@@ -51,12 +51,13 @@ import quickfix.field.LastQty;
 import quickfix.field.LastShares;
 import quickfix.field.LeavesQty;
 import quickfix.field.OrdStatus;
-import quickfix.field.OrdType;
+import quickfix.examples.executor.OrdType;
 import quickfix.field.OrderID;
 import quickfix.field.OrderQty;
 import quickfix.field.Price;
 import quickfix.field.Side;
 import quickfix.field.Symbol;
+import quickfix.field.MsgType;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -64,6 +65,10 @@ import java.util.HashSet;
 import java.util.List;
 
 import java.util.Random;
+
+import quickfix.DefaultMessageFactory;
+import quickfix.MessageUtils;
+import quickfix.fix43.NewOrderSingle;
 
 public class Application extends quickfix.MessageCracker implements quickfix.Application {
     private static final String DEFAULT_MARKET_PRICE_KEY = "DefaultMarketPrice";
@@ -76,7 +81,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
     private MarketDataProvider marketDataProvider;
 
     public Application(SessionSettings settings) throws ConfigError, FieldConvertError {
-        initializeValidOrderTypes(settings);
+        // initializeValidOrderTypes(settings);
         initializeMarketDataProvider(settings);
 
         alwaysFillLimitOrders = settings.isSetting(ALWAYS_FILL_LIMIT_KEY) && settings.getBool(ALWAYS_FILL_LIMIT_KEY);
@@ -101,15 +106,15 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
         }
     }
 
-    private void initializeValidOrderTypes(SessionSettings settings) throws ConfigError, FieldConvertError {
-        if (settings.isSetting(VALID_ORDER_TYPES_KEY)) {
-            List<String> orderTypes = Arrays
-                    .asList(settings.getString(VALID_ORDER_TYPES_KEY).trim().split("\\s*,\\s*"));
-            validOrderTypes.addAll(orderTypes);
-        } else {
-            validOrderTypes.add(OrdType.LIMIT + "");
-        }
-    }
+    // private void initializeValidOrderTypes(SessionSettings settings) throws ConfigError, FieldConvertError {
+    //     if (settings.isSetting(VALID_ORDER_TYPES_KEY)) {
+    //         List<String> orderTypes = Arrays
+    //                 .asList(settings.getString(VALID_ORDER_TYPES_KEY).trim().split("\\s*,\\s*"));
+    //         validOrderTypes.addAll(orderTypes);
+    //     } else {
+    //         validOrderTypes.add(OrdType.LIMIT + "");
+    //     }
+    // }
 
     public void onCreate(SessionID sessionID) {
         Session.lookupSession(sessionID).getLog().onEvent("Valid order types: " + validOrderTypes);
@@ -133,42 +138,20 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
 
     public void fromApp(quickfix.Message message, SessionID sessionID) throws FieldNotFound, IncorrectDataFormat,
             IncorrectTagValue, UnsupportedMessageType {
-        crack(message, sessionID);
-    }
-
-    public void onMessage(quickfix.fix40.NewOrderSingle order, SessionID sessionID) throws FieldNotFound,
-            UnsupportedMessageType, IncorrectTagValue {
-        try {
-            validateOrder(order);
-
-            OrderQty orderQty = order.getOrderQty();
-
-            Price price = getPrice(order);
-
-            quickfix.fix40.ExecutionReport accept = new quickfix.fix40.ExecutionReport(genOrderID(), genExecID(),
-                    new ExecTransType(ExecTransType.NEW), new OrdStatus(OrdStatus.NEW), order.getSymbol(), order.getSide(),
-                    orderQty, new LastShares(0), new LastPx(0), new CumQty(0), new AvgPx(0));
-
-            accept.set(order.getClOrdID());
-            sendMessage(sessionID, accept);
-
-            if (isOrderExecutable(order, price)) {
-                quickfix.fix40.ExecutionReport fill = new quickfix.fix40.ExecutionReport(genOrderID(), genExecID(),
-                        new ExecTransType(ExecTransType.NEW), new OrdStatus(OrdStatus.FILLED), order.getSymbol(), order
-                                .getSide(), orderQty, new LastShares(orderQty.getValue()), new LastPx(price.getValue()),
-                        new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
-
-                fill.set(order.getClOrdID());
-
-                sendMessage(sessionID, fill);
-            }
-        } catch (RuntimeException e) {
-            LogUtil.logThrowable(sessionID, e.getMessage(), e);
+        // crack(message, sessionID);
+        MsgType msgType = new MsgType();
+        String type = message.getHeader().getField(msgType).getValue();
+        if (type.contains("D")) {
+          log.info("custom");
+          oncustMessage(((NewOrderSingle)message), sessionID);
+        } else {
+          crack(message, sessionID);
         }
+        // onMessage((NewOrderSingleModified) message, sessionID);
     }
 
     private boolean isOrderExecutable(Message order, Price price) throws FieldNotFound {
-        if (order.getChar(OrdType.FIELD) == OrdType.LIMIT) {
+        if (order.getString(40) == "2") {
             BigDecimal limitPrice = new BigDecimal(order.getString(Price.FIELD));
             char side = order.getChar(Side.FIELD);
             BigDecimal thePrice = new BigDecimal("" + price.getValue());
@@ -181,7 +164,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
 
     private Price getPrice(Message message) throws FieldNotFound {
         Price price;
-        if (message.getChar(OrdType.FIELD) == OrdType.LIMIT && alwaysFillLimitOrders) {
+        if (message.getString(40) == "2" && alwaysFillLimitOrders) {
             price = new Price(message.getDouble(Price.FIELD));
         } else {
             if (marketDataProvider == null) {
@@ -233,87 +216,24 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
         }
     }
 
-    public void onMessage(quickfix.fix41.NewOrderSingle order, SessionID sessionID) throws FieldNotFound,
-            UnsupportedMessageType, IncorrectTagValue {
-        try {
-        validateOrder(order);
-
-        OrderQty orderQty = order.getOrderQty();
-        Price price = getPrice(order);
-
-        quickfix.fix41.ExecutionReport accept = new quickfix.fix41.ExecutionReport(genOrderID(), genExecID(),
-                new ExecTransType(ExecTransType.NEW), new ExecType(ExecType.FILL), new OrdStatus(OrdStatus.NEW), order
-                        .getSymbol(), order.getSide(), orderQty, new LastShares(0), new LastPx(0), new LeavesQty(0),
-                new CumQty(0), new AvgPx(0));
-
-        accept.set(order.getClOrdID());
-        sendMessage(sessionID, accept);
-
-        if (isOrderExecutable(order, price)) {
-            quickfix.fix41.ExecutionReport executionReport = new quickfix.fix41.ExecutionReport(genOrderID(),
-                    genExecID(), new ExecTransType(ExecTransType.NEW), new ExecType(ExecType.FILL), new OrdStatus(
-                            OrdStatus.FILLED), order.getSymbol(), order.getSide(), orderQty, new LastShares(orderQty
-                            .getValue()), new LastPx(price.getValue()), new LeavesQty(0), new CumQty(orderQty
-                            .getValue()), new AvgPx(price.getValue()));
-
-            executionReport.set(order.getClOrdID());
-
-            sendMessage(sessionID, executionReport);
-        }
-        } catch (RuntimeException e) {
-            LogUtil.logThrowable(sessionID, e.getMessage(), e);
-        }
-    }
-
-    public void onMessage(quickfix.fix42.NewOrderSingle order, SessionID sessionID) throws FieldNotFound,
-            UnsupportedMessageType, IncorrectTagValue {
-        try {
-        validateOrder(order);
-
-        OrderQty orderQty = order.getOrderQty();
-        Price price = getPrice(order);
-
-        quickfix.fix42.ExecutionReport accept = new quickfix.fix42.ExecutionReport(genOrderID(), genExecID(),
-                new ExecTransType(ExecTransType.NEW), new ExecType(ExecType.FILL), new OrdStatus(OrdStatus.NEW), order
-                        .getSymbol(), order.getSide(), new LeavesQty(0), new CumQty(0), new AvgPx(0));
-
-        accept.set(order.getClOrdID());
-        sendMessage(sessionID, accept);
-
-        if (isOrderExecutable(order, price)) {
-            quickfix.fix42.ExecutionReport executionReport = new quickfix.fix42.ExecutionReport(genOrderID(),
-                    genExecID(), new ExecTransType(ExecTransType.NEW), new ExecType(ExecType.FILL), new OrdStatus(
-                            OrdStatus.FILLED), order.getSymbol(), order.getSide(), new LeavesQty(0), new CumQty(
-                            orderQty.getValue()), new AvgPx(price.getValue()));
-
-            executionReport.set(order.getClOrdID());
-            executionReport.set(orderQty);
-            executionReport.set(new LastShares(orderQty.getValue()));
-            executionReport.set(new LastPx(price.getValue()));
-
-            sendMessage(sessionID, executionReport);
-        }
-        } catch (RuntimeException e) {
-            LogUtil.logThrowable(sessionID, e.getMessage(), e);
-        }
-    }
 
     private void validateOrder(Message order) throws IncorrectTagValue, FieldNotFound {
-        OrdType ordType = new OrdType(order.getChar(OrdType.FIELD));
-        if (!validOrderTypes.contains(Character.toString(ordType.getValue()))) {
+        OrdType ordType = new OrdType(order.getString(40));
+        if (!validOrderTypes.contains(ordType.getValue())) {
             log.error("Order type not in ValidOrderTypes setting");
             throw new IncorrectTagValue(ordType.getField());
         }
-        if (ordType.getValue() == OrdType.MARKET && marketDataProvider == null) {
+        if (ordType.getValue() == "1" && marketDataProvider == null) {
             log.error("DefaultMarketPrice setting not specified for market order");
             throw new IncorrectTagValue(ordType.getField());
         }
     }
 
-    public void onMessage(quickfix.fix43.NewOrderSingle order, SessionID sessionID) throws FieldNotFound,
+    public void oncustMessage(NewOrderSingle order, SessionID sessionID) throws FieldNotFound,
             UnsupportedMessageType, IncorrectTagValue {
         try {
-        validateOrder(order);
+        // validateOrder(order);
+        log.info("cust message");
 
         OrderQty orderQty = order.getOrderQty();
         Price price = getPrice(order);
@@ -332,19 +252,23 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
           // market price
         }
         accept.set(order.getOrderQty());
-        accept.set(order.getOrdType());
+        // accept.setField(new OrdType(order.getString(40)));
+        // accept.set(order.getOrdType());
 
         Random rand = new Random();
         int chance = rand.nextInt(200) + 1;
 
         if (chance == 1) {
+          log.info("cust message reject");
           // reject 0.5% of orders
           accept.set(new ExecType(ExecType.REJECTED));
           accept.set(new OrdStatus(OrdStatus.REJECTED));
           sendMessage(sessionID, accept);
         } else if (chance == 2) {
+          log.info("cust message miss");
           // intentionally another miss 0.5% of orders
         } else if (chance > 2 && chance < 52 && orderQty.getValue() > 1 && orderQty.getValue() % 2 == 0) {
+          log.info("cust message partial fill");
           // only partial fill about 25% of the time, when the order quantity is even
           sendMessage(sessionID, accept);
 
@@ -364,6 +288,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
               sendMessage(sessionID, executionReport);
 
               if (chance > 40) {
+                log.info("cust message done for day");
                 // randomly done for day
                 quickfix.fix43.ExecutionReport done = new quickfix.fix43.ExecutionReport(genOrderID(),
                         genExecID(), new ExecType(ExecType.DONE_FOR_DAY), new OrdStatus(OrdStatus.DONE_FOR_DAY), order.getSide(),
@@ -381,6 +306,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
           }
 
         } else {
+          log.info("cust message fullfil");
           // fully fill 73% of the time
           sendMessage(sessionID, accept);
 
@@ -407,6 +333,8 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
     public void onMessage(quickfix.fix43.OrderCancelRequest message, SessionID sessionID)
         throws FieldNotFound, UnsupportedMessageType, IncorrectTagValue {
 
+        log.info("cancelling");
+
         quickfix.fix43.ExecutionReport pending = new quickfix.fix43.ExecutionReport(
                     genOrderID(), genExecID(), new ExecType(ExecType.PENDING_CANCEL), new OrdStatus(
                             OrdStatus.PENDING_CANCEL), message.getSide(), new LeavesQty(message.getOrderQty()
@@ -423,6 +351,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
         int chance = rand.nextInt(100) + 1;
 
         if (chance < 50) {
+          log.info("cancelling now");
           // cancel half the time
           quickfix.fix43.ExecutionReport cancelled = new quickfix.fix43.ExecutionReport(
                       genOrderID(), genExecID(), new ExecType(ExecType.CANCELED), new OrdStatus(
@@ -435,6 +364,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
 
           sendMessage(sessionID, cancelled);
         } else {
+          log.info("cancelling reject");
           // reject half the time
           quickfix.fix43.OrderCancelReject rejected = new quickfix.fix43.OrderCancelReject(
                       genOrderID(), message.getClOrdID(), message.getOrigClOrdID(),
@@ -443,78 +373,6 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
           sendMessage(sessionID, rejected);
         }
 
-    }
-
-    public void onMessage(quickfix.fix44.NewOrderSingle order, SessionID sessionID) throws FieldNotFound,
-            UnsupportedMessageType, IncorrectTagValue {
-        try {
-        validateOrder(order);
-
-        OrderQty orderQty = order.getOrderQty();
-        Price price = getPrice(order);
-
-        quickfix.fix44.ExecutionReport accept = new quickfix.fix44.ExecutionReport(
-                    genOrderID(), genExecID(), new ExecType(ExecType.FILL), new OrdStatus(
-                            OrdStatus.NEW), order.getSide(), new LeavesQty(order.getOrderQty()
-                            .getValue()), new CumQty(0), new AvgPx(0));
-
-        accept.set(order.getClOrdID());
-        accept.set(order.getSymbol());
-        sendMessage(sessionID, accept);
-
-        if (isOrderExecutable(order, price)) {
-            quickfix.fix44.ExecutionReport executionReport = new quickfix.fix44.ExecutionReport(genOrderID(),
-                    genExecID(), new ExecType(ExecType.FILL), new OrdStatus(OrdStatus.FILLED), order.getSide(),
-                    new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
-
-            executionReport.set(order.getClOrdID());
-            executionReport.set(order.getSymbol());
-            executionReport.set(orderQty);
-            executionReport.set(new LastQty(orderQty.getValue()));
-            executionReport.set(new LastPx(price.getValue()));
-
-            sendMessage(sessionID, executionReport);
-        }
-        } catch (RuntimeException e) {
-            LogUtil.logThrowable(sessionID, e.getMessage(), e);
-        }
-    }
-
-    public void onMessage(quickfix.fix50.NewOrderSingle order, SessionID sessionID)
-            throws FieldNotFound, UnsupportedMessageType, IncorrectTagValue {
-        try {
-            validateOrder(order);
-
-            OrderQty orderQty = order.getOrderQty();
-            Price price = getPrice(order);
-
-            quickfix.fix50.ExecutionReport accept = new quickfix.fix50.ExecutionReport(
-                    genOrderID(), genExecID(), new ExecType(ExecType.FILL), new OrdStatus(
-                            OrdStatus.NEW), order.getSide(), new LeavesQty(order.getOrderQty()
-                            .getValue()), new CumQty(0));
-
-            accept.set(order.getClOrdID());
-            accept.set(order.getSymbol());
-            sendMessage(sessionID, accept);
-
-            if (isOrderExecutable(order, price)) {
-                quickfix.fix50.ExecutionReport executionReport = new quickfix.fix50.ExecutionReport(
-                        genOrderID(), genExecID(), new ExecType(ExecType.FILL), new OrdStatus(
-                                OrdStatus.FILLED), order.getSide(), new LeavesQty(0), new CumQty(
-                                orderQty.getValue()));
-
-                executionReport.set(order.getClOrdID());
-                executionReport.set(order.getSymbol());
-                executionReport.set(orderQty);
-                executionReport.set(new LastQty(orderQty.getValue()));
-                executionReport.set(new LastPx(price.getValue()));
-                executionReport.set(new AvgPx(price.getValue()));
-
-                sendMessage(sessionID, executionReport);
-            }
-        } catch (RuntimeException e) {
-            LogUtil.logThrowable(sessionID, e.getMessage(), e);
-        }
     }
 
     public OrderID genOrderID() {
