@@ -273,7 +273,7 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
           sendMessage(sessionID, accept);
 
           if (isOrderExecutable(order, price)) {
-              orderQty.setValue( orderQty.getValue()/2 ); // half the value
+              orderQty.setValue( orderQty.getValue() * 0.9 ); // .9 the value
               quickfix.fix43.ExecutionReport executionReport = new quickfix.fix43.ExecutionReport(genOrderID(),
                       genExecID(), new ExecType(ExecType.PARTIAL_FILL), new OrdStatus(OrdStatus.PARTIALLY_FILLED), order.getSide(),
                       new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
@@ -286,23 +286,6 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
               executionReport.set(order.getAccount());
 
               sendMessage(sessionID, executionReport);
-
-              if (chance > 40) {
-                log.info("cust message done for day");
-                // randomly done for day
-                quickfix.fix43.ExecutionReport done = new quickfix.fix43.ExecutionReport(genOrderID(),
-                        genExecID(), new ExecType(ExecType.DONE_FOR_DAY), new OrdStatus(OrdStatus.DONE_FOR_DAY), order.getSide(),
-                        new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
-
-                done.set(order.getClOrdID());
-                done.set(order.getSymbol());
-                done.set(orderQty);
-                done.set(new LastQty(orderQty.getValue()));
-                done.set(new LastPx(price.getValue()));
-                done.set(order.getAccount());
-
-                sendMessage(sessionID, executionReport);
-              }
           }
 
         } else {
@@ -323,6 +306,23 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
               executionReport.set(order.getAccount());
 
               sendMessage(sessionID, executionReport);
+
+              if (chance > 100) {
+                log.info("cust message done for day");
+                // randomly done for day
+                quickfix.fix43.ExecutionReport done = new quickfix.fix43.ExecutionReport(genOrderID(),
+                        genExecID(), new ExecType(ExecType.DONE_FOR_DAY), new OrdStatus(OrdStatus.DONE_FOR_DAY), order.getSide(),
+                        new LeavesQty(0), new CumQty(orderQty.getValue()), new AvgPx(price.getValue()));
+
+                done.set(order.getClOrdID());
+                done.set(order.getSymbol());
+                done.set(orderQty);
+                done.set(new LastQty(orderQty.getValue()));
+                done.set(new LastPx(price.getValue()));
+                done.set(order.getAccount());
+
+                sendMessage(sessionID, executionReport);
+              }
           }
         }
         } catch (RuntimeException e) {
